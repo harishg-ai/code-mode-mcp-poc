@@ -1,0 +1,72 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Write approval card</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { width: 1200px; height: 920px; background: #0d1117; color: #e6edf3;
+         font-family: "Segoe UI", system-ui, sans-serif; padding: 64px; display: flex; flex-direction: column; gap: 36px; }
+  .eyebrow { color: #7d8590; font: 600 22px "Cascadia Mono", Consolas, monospace; letter-spacing: .02em; }
+  h1 { font-size: 66px; line-height: 1.05; font-weight: 700; margin-top: 12px; }
+  h1 .hl { color: #3fb950; }
+  .sub { color: #9198a1; font-size: 26px; margin-top: 14px; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+  .dialog { background: #161b22; border: 1px solid #30363d; border-radius: 18px; padding: 30px; box-shadow: 0 16px 40px rgba(0,0,0,.45); }
+  .dialog .title { font-size: 22px; color: #9198a1; display: flex; align-items: center; gap: 12px; }
+  .dot { width: 14px; height: 14px; border-radius: 50%; background: #d29922; }
+  .dialog .q { font-size: 28px; font-weight: 600; margin: 18px 0 16px; }
+  .dialog .call { font: 600 30px "Cascadia Mono", Consolas, monospace; background: #0d1117; border: 1px solid #30363d;
+                  border-radius: 10px; padding: 18px 20px; color: #f78166; }
+  .dialog .note { color: #7d8590; font-size: 19px; margin-top: 14px; }
+  .btns { display: flex; gap: 14px; margin-top: 24px; justify-content: flex-end; }
+  .btn { font-size: 22px; font-weight: 600; padding: 12px 30px; border-radius: 10px; border: 1px solid #30363d; }
+  .deny { background: #21262d; color: #e6edf3; }
+  .allow { background: #238636; color: #fff; border-color: #2ea043; }
+  .cases { background: #161b22; border: 1px solid #30363d; border-radius: 18px; padding: 26px 30px; display: flex; flex-direction: column; gap: 16px; }
+  .cases h2 { font-size: 21px; color: #9198a1; font-weight: 600; }
+  .case { display: grid; grid-template-columns: 1fr auto; gap: 16px; align-items: center; font-size: 21px; padding-top: 14px; border-top: 1px solid #21262d; }
+  .case:first-of-type { border-top: 0; padding-top: 0; }
+  .tag { font: 700 18px "Cascadia Mono", Consolas, monospace; padding: 6px 12px; border-radius: 8px; white-space: nowrap; }
+  .blocked { color: #ff7b72; background: rgba(248,81,73,.12); }
+  .ran { color: #3fb950; background: rgba(63,185,80,.12); }
+  .why { background: #161b22; border: 1px solid #30363d; border-left: 5px solid #3fb950; border-radius: 14px;
+         padding: 22px 28px; font-size: 25px; line-height: 1.35; }
+  .why b { color: #3fb950; }
+  .foot { margin-top: auto; display: flex; justify-content: space-between; color: #7d8590; font: 20px "Cascadia Mono", Consolas, monospace; }
+  .foot b { color: #e6edf3; font-weight: 600; }
+</style>
+</head>
+<body>
+  <div>
+    <div class="eyebrow">CODE MODE MCP · WRITE APPROVAL</div>
+    <h1>The agent asks. <span class="hl">You decide.</span></h1>
+    <div class="sub">MCP elicitation: the server pauses mid-tool-call and asks the user, not the model.</div>
+  </div>
+
+  <div class="row">
+    <div class="dialog">
+      <div class="title"><span class="dot"></span>acme-code-mode · approval needed</div>
+      <div class="q">Code written by the model wants to make a write call:</div>
+      <div class="call">DELETE /v1/tasks/7</div>
+      <div class="note">GET requests run without asking. Writes wait for you.</div>
+      <div class="btns"><span class="btn deny">Deny</span><span class="btn allow">Allow</span></div>
+    </div>
+
+    <div class="cases">
+      <h2>Real run, 4 cases</h2>
+      <div class="case"><span>User declines</span><span class="tag blocked">BLOCKED</span></div>
+      <div class="case"><span>User approves</span><span class="tag ran">RAN · 204</span></div>
+      <div class="case"><span>Loop of 3 deletes, one "no"</span><span class="tag blocked">3 BLOCKED · 1 PROMPT</span></div>
+      <div class="case"><span>Client can't show a prompt</span><span class="tag blocked">BLOCKED</span></div>
+    </div>
+  </div>
+
+  <div class="why">The approval lives <b>outside the model</b>, so a confused or prompt-injected model can't approve its own delete.</div>
+
+  <div class="foot">
+    <span>Python · MCP SDK 2.3 · fail closed</span>
+    <b>github.com/harishg-ai/code-mode-mcp-poc</b>
+  </div>
+</body>
+</html>
