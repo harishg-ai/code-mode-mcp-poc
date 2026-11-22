@@ -1,3 +1,6 @@
 node_modules/
 linkedin-post.md
 .env
+.venv/
+__pycache__/
+*.egg-info/

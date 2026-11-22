@@ -1,0 +1,20 @@
+[project]
+name = "code-mode-mcp-poc"
+version = "0.2.0"
+description = "Local proof of concept of the Code Mode MCP pattern: two tools (search, execute) over a large API, with model-written JavaScript run in a sandbox."
+requires-python = ">=3.11"
+dependencies = [
+    "mcp>=2.3,<3",
+    "httpx>=0.27",
+    "tiktoken>=0.8",
+]
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["acme"]
+
+[tool.setuptools.package-data]
+acme = ["sandbox_child.mjs"]

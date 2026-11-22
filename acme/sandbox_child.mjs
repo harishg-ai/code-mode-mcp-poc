@@ -2,11 +2,29 @@
 // writes, no child processes, no workers) and an empty environment.
 // Inside that process, model code runs in a vm context that holds no
 // host-realm objects: everything it can reach was created inside the context.
+//
+// Protocol with the Python host: one JSON object per line.
+//   stdin : {"code", "specJson", "allowApi"} first, then {"type":"response","payload"}
+//   stdout: {"type":"request","payload"} and finally {"type":"done", ...}
 import vm from 'node:vm';
+import readline from 'node:readline';
 
-process.once('message', async (msg) => {
-  const { code, specJson, allowApi } = msg;
+const out = (obj) => process.stdout.write(JSON.stringify(obj) + '\n');
+const lines = readline.createInterface({ input: process.stdin });
+let deliver = null;
+let started = false;
 
+lines.on('line', (line) => {
+  const msg = JSON.parse(line);
+  if (!started) {
+    started = true;
+    run(msg);
+  } else if (msg.type === 'response' && deliver) {
+    deliver(msg.payload);
+  }
+});
+
+async function run({ code, specJson, allowApi }) {
   const context = vm.createContext(Object.create(null), {
     codeGeneration: { strings: false, wasm: false }, // no eval / new Function
   });
@@ -14,7 +32,7 @@ process.once('message', async (msg) => {
   // Host-side bridge functions. They are installed under temporary names,
   // captured into closures by the bootstrap script, then deleted, so model
   // code never holds a reference to a host-realm function.
-  context.__send = (json) => process.send({ type: 'request', payload: json });
+  context.__send = (json) => out({ type: 'request', payload: json });
   context.__specJson = specJson ?? 'null';
   context.__allowApi = Boolean(allowApi);
 
@@ -53,11 +71,8 @@ process.once('message', async (msg) => {
       return { deliver, getLogs };
     })()
   `;
-  const { deliver, getLogs } = vm.runInContext(bootstrap, context);
-
-  process.on('message', (m) => {
-    if (m.type === 'response') deliver(m.payload);
-  });
+  const bridge = vm.runInContext(bootstrap, context);
+  deliver = bridge.deliver;
 
   const wrapped = `
     (async () => {
@@ -70,8 +85,8 @@ process.once('message', async (msg) => {
 
   try {
     const resultJson = await vm.runInContext(wrapped, context, { timeout: 2000, filename: 'model-code.js' });
-    process.send({ type: 'done', ok: true, resultJson, logsJson: getLogs() });
+    out({ type: 'done', ok: true, resultJson, logsJson: bridge.getLogs() });
   } catch (err) {
-    process.send({ type: 'done', ok: false, error: String(err?.message ?? err), logsJson: getLogs() });
+    out({ type: 'done', ok: false, error: String(err?.message ?? err), logsJson: bridge.getLogs() });
   }
-});
+}

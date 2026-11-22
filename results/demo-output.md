@@ -1,13 +1,13 @@
 # Code Mode MCP POC: run output
-Run at 2026-11-21T17:27:59.742Z on Node v24.20.0
+Run at 2026-11-21T20:37:37+00:00 on Python 3.13.17
 
 ## 1. Tool definitions in context (cl100k_base tokens)
 | Server | Tools | Tokens |
 |---|---|---|
 | One tool per endpoint | 82 | 6,093 |
-| Code Mode (search + execute) | 2 | 361 |
+| Code Mode (search + execute) | 2 | 346 |
 
-Reduction: 94.1%. The Code Mode cost stays flat as the API grows; the per-endpoint cost grows with every endpoint.
+Reduction: 94.3%. The Code Mode cost stays flat as the API grows; the per-endpoint cost grows with every endpoint.
 
 ## 2. `search`: find task endpoints
 ```js
@@ -20,7 +20,7 @@ Result:
 ```json
 [{"route":"GET /v1/tasks","summary":"List tasks","filters":["page","per_page","title","status","priority","project_id","assignee_id","due_date"]},{"route":"POST /v1/tasks","summary":"Create a tasks row","filters":[]},{"route":"GET /v1/tasks/{id}","summary":"Get one tasks row","filters":[]},{"route":"PATCH /v1/tasks/{id}","summary":"Update a tasks row","filters":[]},{"route":"DELETE /v1/tasks/{id}","summary":"Delete a tasks row","filters":[]},{"route":"GET /v1/projects/{id}/tasks","summary":"List tasks in a project","filters":["page","per_page"]},{"route":"POST /v1/tasks/{id}/assign","summary":"Assign a task to a user","filters":[]}]
 
-[sandbox: 142 ms, 0 API requests]
+[sandbox: 109 ms, 0 API requests]
 ```
 Spec size: 12,548 tokens. Search result: 189 tokens.
 
@@ -49,7 +49,7 @@ Result:
 ```
 {"checked":82,"overdue":23,"top":[{"name":"user name 18","email":"user email 18","overdue_high_priority":4},{"name":"user name 5","email":"user email 5","overdue_high_priority":3},{"name":"user name 6","email":"user email 6","overdue_high_priority":3}]}
 
-[sandbox: 105 ms, 5 API requests]
+[sandbox: 95 ms, 5 API requests]
 ```
 
 | Approach | Model round trips | Tool-result tokens in context |
@@ -61,11 +61,22 @@ Result:
 | Probe | Outcome |
 |---|---|
 | read secrets from env | ran: "no process global" |
-| require a module | blocked: Error: require is not defined |
-| dynamic import | blocked: Error: A dynamic import callback was not specified. |
-| network fetch | blocked: Error: fetch is not defined |
-| eval | blocked: Error: Code generation from strings disallowed for this context |
-| Function-constructor escape | blocked: Error: Code generation from strings disallowed for this context |
-| prototype-chain escape | blocked: Error: Code generation from strings disallowed for this context |
-| infinite loop | blocked: Error: Script execution timed out after 2000ms |
+| require a module | blocked: Error executing tool execute: Error: require is not defined |
+| dynamic import | blocked: Error executing tool execute: Error: A dynamic import callback was not specified. |
+| network fetch | blocked: Error executing tool execute: Error: fetch is not defined |
+| eval | blocked: Error executing tool execute: Error: Code generation from strings disallowed for this context |
+| Function-constructor escape | blocked: Error executing tool execute: Error: Code generation from strings disallowed for this context |
+| prototype-chain escape | blocked: Error executing tool execute: Error: Code generation from strings disallowed for this context |
+| infinite loop | blocked: Error executing tool execute: Error: Script execution timed out after 2000ms |
 | read the bearer token | ran: {"id":1,"name":"user name 1","email":"user email 1","role":"admin","team_id":1} |
+
+## 5. Write approval (host-side, outside the model)
+```js
+async () => (await api.request({ method: 'DELETE', path: '/v1/tasks/7' })).status
+```
+| Case | Outcome |
+|---|---|
+| User declines in the approval prompt | blocked: Error executing tool execute: Error: blocked: DELETE /v1/tasks/7 was not approved by the user |
+| User approves | ran: status 204 |
+| Loop of 3 deletes, user declines the first | ["blocked: DELETE /v1/tasks/8 was not approved by the user","blocked: DELETE /v1/tasks/9 was not approved by the user","blocked: DELETE /v1/tasks/10 w |
+| Client without approval support | blocked: Error executing tool execute: Error: blocked: DELETE /v1/tasks/7 was not approved by the user |

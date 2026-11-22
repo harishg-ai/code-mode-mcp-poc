@@ -1,0 +1,130 @@
+{
+  "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+  "today": "2026-11-21",
+  "rows": [
+    {
+      "n": 1,
+      "q": "How many tasks have status \"done\"?",
+      "expected": 75,
+      "mode": "naive",
+      "llm_calls": 2,
+      "tool_calls": 1,
+      "prompt_tokens": 24934,
+      "completion_tokens": 129,
+      "tool_result_tokens": 2739,
+      "ms": 4870,
+      "answer": 75,
+      "correct": true,
+      "error": null
+    },
+    {
+      "n": 1,
+      "q": "How many tasks have status \"done\"?",
+      "expected": 75,
+      "mode": "codemode",
+      "llm_calls": 4,
+      "tool_calls": 3,
+      "prompt_tokens": 4656,
+      "completion_tokens": 365,
+      "tool_result_tokens": 543,
+      "ms": 13562,
+      "answer": 75,
+      "correct": true,
+      "error": null
+    },
+    {
+      "n": 3,
+      "q": "What is the total amount of all invoices whose status is \"overdue\"?",
+      "expected": 50269,
+      "mode": "naive",
+      "llm_calls": 3,
+      "tool_calls": 2,
+      "prompt_tokens": 34158,
+      "completion_tokens": 678,
+      "tool_result_tokens": 587,
+      "ms": 14875,
+      "answer": 50269,
+      "correct": true,
+      "error": null
+    },
+    {
+      "n": 3,
+      "q": "What is the total amount of all invoices whose status is \"overdue\"?",
+      "expected": 50269,
+      "mode": "codemode",
+      "llm_calls": 4,
+      "tool_calls": 3,
+      "prompt_tokens": 4457,
+      "completion_tokens": 552,
+      "tool_result_tokens": 324,
+      "ms": 11549,
+      "answer": 50269,
+      "correct": true,
+      "error": null
+    },
+    {
+      "n": 6,
+      "q": "Which user has the most overdue high-priority tasks? A task is overdue if its due_date is before 2026-11-21 and its status is not \"done\". Answer with the user name.",
+      "expected": [
+        "user name 18"
+      ],
+      "mode": "naive",
+      "llm_calls": 4,
+      "tool_calls": 3,
+      "prompt_tokens": 62323,
+      "completion_tokens": 3988,
+      "tool_result_tokens": 4582,
+      "ms": 40128,
+      "answer": "user name 18",
+      "correct": true,
+      "error": null
+    },
+    {
+      "n": 6,
+      "q": "Which user has the most overdue high-priority tasks? A task is overdue if its due_date is before 2026-11-21 and its status is not \"done\". Answer with the user name.",
+      "expected": [
+        "user name 18"
+      ],
+      "mode": "codemode",
+      "llm_calls": 6,
+      "tool_calls": 5,
+      "prompt_tokens": 19335,
+      "completion_tokens": 2023,
+      "tool_result_tokens": 2989,
+      "ms": 32801,
+      "answer": "user name 18",
+      "correct": true,
+      "error": null
+    },
+    {
+      "n": 9,
+      "q": "What is the combined MRR of all distinct customers that have at least one invoice with status \"overdue\"?",
+      "expected": 43352,
+      "mode": "naive",
+      "llm_calls": 15,
+      "tool_calls": 15,
+      "prompt_tokens": 192358,
+      "completion_tokens": 2058,
+      "tool_result_tokens": 1078,
+      "ms": 57741,
+      "answer": null,
+      "correct": false,
+      "error": "no answer after 15 turns"
+    },
+    {
+      "n": 9,
+      "q": "What is the combined MRR of all distinct customers that have at least one invoice with status \"overdue\"?",
+      "expected": 43352,
+      "mode": "codemode",
+      "llm_calls": 11,
+      "tool_calls": 10,
+      "prompt_tokens": 26520,
+      "completion_tokens": 2181,
+      "tool_result_tokens": 1441,
+      "ms": 45868,
+      "answer": 43352,
+      "correct": true,
+      "error": null
+    }
+  ]
+}
