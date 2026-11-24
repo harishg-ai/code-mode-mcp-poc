@@ -1,0 +1,72 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Accuracy eval card</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { width: 1200px; height: 980px; background: #0d1117; color: #e6edf3;
+         font-family: "Segoe UI", system-ui, sans-serif; padding: 60px 64px; display: flex; flex-direction: column; gap: 30px; }
+  .eyebrow { color: #7d8590; font: 600 22px "Cascadia Mono", Consolas, monospace; letter-spacing: .02em; }
+  h1 { font-size: 62px; line-height: 1.05; font-weight: 700; margin-top: 12px; }
+  h1 .hl { color: #3fb950; }
+  .sub { color: #9198a1; font-size: 24px; margin-top: 14px; }
+  table { width: 100%; border-collapse: separate; border-spacing: 0; background: #161b22; border: 1px solid #30363d; border-radius: 18px; overflow: hidden; }
+  th, td { padding: 20px 28px; text-align: left; font-size: 24px; border-top: 1px solid #21262d; }
+  thead th { border-top: 0; color: #9198a1; font-size: 20px; font-weight: 600; }
+  th.col, td.num { text-align: right; }
+  td.num { font: 600 30px "Cascadia Mono", Consolas, monospace; }
+  td.win { color: #3fb950; }
+  td.lose { color: #9198a1; }
+  td.note { color: #7d8590; font-size: 19px; }
+  .row { display: grid; grid-template-columns: 1.35fr 1fr; gap: 24px; }
+  .box { background: #161b22; border: 1px solid #30363d; border-radius: 18px; padding: 24px 28px; }
+  .box h2 { font-size: 20px; color: #9198a1; font-weight: 600; margin-bottom: 12px; }
+  .box .q { font-size: 23px; margin-bottom: 14px; }
+  .vs { display: flex; align-items: baseline; gap: 18px; font: 600 26px "Cascadia Mono", Consolas, monospace; }
+  .vs .from { color: #7d8590; text-decoration: line-through; }
+  .vs .to { color: #3fb950; font-size: 32px; }
+  .box .why { color: #9198a1; font-size: 19px; margin-top: 10px; }
+  .trade { border-left: 5px solid #d29922; }
+  .trade p { font-size: 22px; line-height: 1.35; }
+  .trade b { color: #d29922; }
+  .foot { margin-top: auto; display: flex; justify-content: space-between; gap: 24px; white-space: nowrap; color: #7d8590; font: 17px "Cascadia Mono", Consolas, monospace; }
+  .foot b { color: #e6edf3; font-weight: 600; }
+</style>
+</head>
+<body>
+  <div>
+    <div class="eyebrow">CODE MODE MCP · ACCURACY EVAL</div>
+    <h1>Same answers. <span class="hl">5.8x fewer tokens.</span></h1>
+    <div class="sub">12 questions with known answers · same model, same API · Nemotron 3 Ultra (open weights)</div>
+  </div>
+
+  <table>
+    <thead><tr><th></th><th class="col">82 tools</th><th class="col">Code Mode</th></tr></thead>
+    <tbody>
+      <tr><td>Correct answers</td><td class="num lose">11/12</td><td class="num win">12/12</td></tr>
+      <tr><td>Input tokens (all 12)</td><td class="num lose">830,963</td><td class="num win">142,439</td></tr>
+      <tr><td>Output tokens</td><td class="num lose">13,187</td><td class="num win">11,996</td></tr>
+      <tr><td>Avg tool calls <span class="note">(Code Mode searches first)</span></td><td class="num win">3.8</td><td class="num lose">5.2</td></tr>
+    </tbody>
+  </table>
+
+  <div class="row">
+    <div class="box">
+      <h2>Where it pays off: multi-step questions</h2>
+      <div class="q">"Which project has the most tasks?"</div>
+      <div class="vs"><span class="from">11 calls · 243k</span><span class="to">4 calls · 7.4k</span></div>
+      <div class="why">The one miss: 82 tools ran out of turns on a cross-resource join.</div>
+    </div>
+    <div class="box trade">
+      <h2>The honest trade</h2>
+      <p>On simple lookups Code Mode makes <b>more calls</b> (3–5 vs 1), but still uses <b>~4x fewer tokens</b>.</p>
+    </div>
+  </div>
+
+  <div class="foot">
+    <span>1 model · 1 run · 12 questions · a signal, not a benchmark</span>
+    <b>github.com/harishg-ai/code-mode-mcp-poc</b>
+  </div>
+</body>
+</html>
