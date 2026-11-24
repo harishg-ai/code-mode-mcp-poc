@@ -8,10 +8,12 @@ so earlier results stay comparable.
 
 from __future__ import annotations
 
+import json
 import math
+from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Any
-from urllib.parse import parse_qsl, urlparse
+from urllib.parse import parse_qsl, urlencode, urlparse
 
 RESOURCES: dict[str, dict[str, Any]] = {
     "projects": {"name": "string", "status": ["active", "archived"], "owner_id": "ref:users"},
@@ -126,6 +128,39 @@ def _num(v: Any) -> float | None:
         return None
 
 
+@dataclass(frozen=True)
+class Resolved:
+    """A request after routing: exactly what `execute` will run.
+
+    The approval prompt is built from this object, and the same object is
+    executed, so what the user approves and what runs cannot drift apart.
+    """
+
+    method: str
+    operation: str | None  # e.g. "delete_tasks"; None when routing failed
+    path: str  # canonical path the router matched, e.g. "/v1/tasks/7"
+    resource: str | None = None
+    rid: Any = None  # numeric id (int) when the path had one
+    sub: str | None = None
+    query: dict[str, Any] = field(default_factory=dict)
+    body: Any = None
+    error: dict[str, Any] | None = None  # set when routing failed; execute returns it
+
+    @property
+    def has_side_effects(self) -> bool:
+        """True only when executing would change data."""
+        return self.error is None and self.method in ("POST", "PUT", "PATCH", "DELETE")
+
+    def describe(self) -> str:
+        q = "?" + urlencode(self.query) if self.query else ""
+        line = f"{self.method} {self.path}{q}"
+        if self.operation:
+            line += f"  ({self.operation})"
+        if self.body is not None:
+            line += f"\nBody: {json.dumps(self.body)}"
+        return line
+
+
 class AcmeApi:
     def __init__(self, token: str):
         self._token = token
@@ -133,55 +168,82 @@ class AcmeApi:
         self.calls = 0
 
     def handle(self, req: dict[str, Any]) -> dict[str, Any]:
-        """Router. `req` = {method, path, query, body, headers}."""
-        self.calls += 1
-        if (req.get("headers") or {}).get("authorization") != f"Bearer {self._token}":
-            return _json(401, {"error": "unauthorized"})
+        """Route and run. `req` = {method, path, query, body, headers}."""
+        return self.execute(self.resolve(req))
+
+    def resolve(self, req: dict[str, Any]) -> Resolved:
+        """Parse and route a request without running it."""
         method = str(req.get("method") or "GET").upper()
         url = urlparse(str(req.get("path", "")))
         query = {**dict(parse_qsl(url.query)), **(req.get("query") or {})}
+        body = req.get("body")
+        raw_path = url.path or "/"
+
+        def fail(status: int, msg: str) -> Resolved:
+            return Resolved(method, None, raw_path, query=query, body=body, error=_json(status, {"error": msg}))
+
+        if (req.get("headers") or {}).get("authorization") != f"Bearer {self._token}":
+            return fail(401, "unauthorized")
         parts = [p for p in url.path.split("/") if p]
         if not parts or parts[0] != "v1":
-            return _json(404, {"error": "not found"})
+            return fail(404, "not found")
         resource, rid, sub = (parts[1:] + [None, None, None])[:3]
-        table = self._db.get(resource) if resource else None
-        if table is None:
-            return _json(404, {"error": f"unknown resource {resource}"})
-        num_id = _num(rid) if rid is not None else None
+        if not resource or resource not in self._db:
+            return fail(404, f"unknown resource {resource}")
+        if len(parts) > 4:
+            return fail(404, "not found")
+        num = _num(rid) if rid is not None else None
+        # Canonical id: 7 for "7", "007" or "7.0"; anything else stays as typed.
+        cid: Any = int(num) if num is not None and float(num).is_integer() else rid
+        path = "/v1/" + "/".join(str(p) for p in (resource, cid, sub) if p is not None)
 
-        # Extra routes.
+        def ok(op: str) -> Resolved:
+            return Resolved(method, op, path, resource, cid, sub, query, body)
+
         if resource == "projects" and rid and sub == "tasks" and method == "GET":
-            return _list([t for t in self._db["tasks"] if t["project_id"] == num_id], query)
+            return ok("list_project_tasks")
         if resource == "tasks" and rid and sub == "assign" and method == "POST":
-            t = next((x for x in table if x["id"] == num_id), None)
-            if t is None:
-                return _json(404, {"error": "not found"})
-            t["assignee_id"] = (req.get("body") or {}).get("assignee_id")
-            return _json(200, t)
+            return ok("assign_task")
         if sub:
-            return _json(404, {"error": "not found"})
-
+            return fail(404, "not found")
         if not rid:
-            if method == "GET":
-                return _list(table, query)
-            if method == "POST":
-                row = {"id": max((x["id"] for x in table), default=0) + 1, **(req.get("body") or {})}
-                table.append(row)
-                return _json(201, row)
-            return _json(405, {"error": "method not allowed"})
-        idx = next((i for i, x in enumerate(table) if x["id"] == num_id), -1)
+            if method in ("GET", "POST"):
+                return ok(("list_" if method == "GET" else "create_") + resource)
+            return fail(405, "method not allowed")
+        ops = {"GET": "get_", "PATCH": "update_", "DELETE": "delete_"}
+        if method in ops:
+            return ok(ops[method] + resource)
+        return fail(405, "method not allowed")
+
+    def execute(self, r: Resolved) -> dict[str, Any]:
+        """Run a resolved request."""
+        self.calls += 1
+        if r.error is not None:
+            return r.error
+        table = self._db[r.resource]
+        op = r.operation
+        if op == "list_project_tasks":
+            return _list([t for t in self._db["tasks"] if t["project_id"] == r.rid], r.query)
+        if op.startswith("list_"):
+            return _list(table, r.query)
+        if op.startswith("create_"):
+            row = {"id": max((x["id"] for x in table), default=0) + 1, **(r.body or {})}
+            table.append(row)
+            return _json(201, row)
+        idx = next((i for i, x in enumerate(table) if x["id"] == r.rid), -1)
         if idx < 0:
             return _json(404, {"error": "not found"})
-        if method == "GET":
+        if op == "assign_task":
+            table[idx]["assignee_id"] = (r.body or {}).get("assignee_id")
             return _json(200, table[idx])
-        if method == "PATCH":
-            table[idx].update(req.get("body") or {})
-            table[idx]["id"] = int(num_id)
+        if op.startswith("get_"):
             return _json(200, table[idx])
-        if method == "DELETE":
-            table.pop(idx)
-            return _json(204, None)
-        return _json(405, {"error": "method not allowed"})
+        if op.startswith("update_"):
+            table[idx].update(r.body or {})
+            table[idx]["id"] = r.rid
+            return _json(200, table[idx])
+        table.pop(idx)  # delete_
+        return _json(204, None)
 
 
 def _json(status: int, body: Any) -> dict[str, Any]:

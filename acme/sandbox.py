@@ -24,8 +24,9 @@ CHILD = Path(__file__).with_name("sandbox_child.mjs")
 MAX_RESULT_CHARS = 6000
 MAX_LINE_BYTES = 16 * 1024 * 1024
 
-OnRequest = Callable[[dict[str, Any]], Awaitable[Any]]
-Approve = Callable[[dict[str, Any]], Awaitable[bool]]
+OnRequest = Callable[[Any], Awaitable[Any]]
+Approve = Callable[[Any], Awaitable[bool]]
+Prepare = Callable[[dict[str, Any]], Any]
 
 
 def _node() -> str:
@@ -33,6 +34,16 @@ def _node() -> str:
     if not node:
         raise RuntimeError("Node.js is required for the sandbox (node was not found on PATH)")
     return node
+
+
+def _describe_for_trace(req: Any) -> dict[str, Any]:
+    """Method, path and operation for one trace entry, from raw opts or a resolved request."""
+    if isinstance(req, dict):
+        return {"method": str(req.get("method") or "GET").upper(), "path": str(req.get("path"))}
+    out = {"method": getattr(req, "method", "?"), "path": getattr(req, "path", "?")}
+    if getattr(req, "operation", None):
+        out["operation"] = req.operation
+    return out
 
 
 def _child_env() -> dict[str, str]:
@@ -48,19 +59,27 @@ async def run_in_sandbox(
     spec_json: str | None = None,
     on_request: OnRequest | None = None,
     approve: Approve | None = None,
+    prepare: Prepare | None = None,
     timeout_s: float = 5.0,
     max_requests: int = 100,
 ) -> dict[str, Any]:
-    """Run model-written JS. Returns {ok, result | error, logs, requests, ms}.
+    """Run model-written JS. Returns {ok, result | error, logs, requests, ms, trace}.
 
-    `approve(opts)` (optional) runs on the host before each API request is
-    forwarded and returns True to allow it. The time limit is paused while it
-    waits, so a person has time to answer an approval prompt.
+    Each API request from the sandbox goes through three host-side steps:
+      prepare(opts) -> req   resolve the raw request once (route, canonical path)
+      approve(req)  -> bool  optional policy check; False blocks the call
+      on_request(req)        run exactly the object that was approved
+    Without `prepare`, the raw opts dict is passed to approve and on_request.
+    The time limit is paused while `approve` waits, so a person has time to
+    answer an approval prompt.
+
+    `trace` lists every request: method, path, operation, decision, status, ms.
     """
     started = time.monotonic()
     paused = 0.0
     requests = 0
     remaining = timeout_s
+    trace: list[dict[str, Any]] = []
 
     proc = await anyio.open_process(
         [
@@ -76,7 +95,7 @@ async def run_in_sandbox(
     stdout = BufferedByteReceiveStream(proc.stdout)
 
     def finish(out: dict[str, Any]) -> dict[str, Any]:
-        out.update(requests=requests, ms=round((time.monotonic() - started - paused) * 1000))
+        out.update(requests=requests, ms=round((time.monotonic() - started - paused) * 1000), trace=trace)
         if paused:
             out["approval_wait_ms"] = round(paused * 1000)
         return out
@@ -112,24 +131,43 @@ async def run_in_sandbox(
             if msg["type"] == "request":
                 req = json.loads(msg["payload"])
                 rid, opts = req["id"], req.get("opts") or {}
+                if not isinstance(opts, dict):
+                    opts = {}
                 requests += 1
+                entry: dict[str, Any] = {"n": requests, **_describe_for_trace(opts)}
+                trace.append(entry)
+                t1 = time.monotonic()
                 try:
                     if on_request is None:
                         raise RuntimeError("no API in this tool")
                     if requests > max_requests:
                         raise RuntimeError(f"request limit ({max_requests}) exceeded")
+                    target = prepare(opts) if prepare is not None else opts
+                    entry.update(_describe_for_trace(target))
+                    entry["decision"] = "allowed"
                     if approve is not None:
                         w0 = time.monotonic()
-                        allowed = await approve(opts)
-                        paused += time.monotonic() - w0
-                        if not allowed:
-                            method = str(opts.get("method") or "GET").upper()
-                            raise RuntimeError(f"blocked: {method} {opts.get('path')} was not approved by the user")
-                    t1 = time.monotonic()
-                    reply = {"id": rid, "response": await on_request(opts)}
-                    remaining -= time.monotonic() - t1
+                        # True / "allowed" / "approved" let the call through; False blocks it.
+                        verdict = await approve(target)
+                        waited = time.monotonic() - w0
+                        paused += waited
+                        t1 += waited  # human wait is not API latency
+                        if not verdict:
+                            entry["decision"] = "blocked"
+                            raise RuntimeError(f"blocked: {entry['method']} {entry['path']} was not approved by the user")
+                        if isinstance(verdict, str):
+                            entry["decision"] = verdict
+                    response = await on_request(target)
+                    if isinstance(response, dict) and "status" in response:
+                        entry["status"] = response["status"]
+                    reply = {"id": rid, "response": response}
                 except Exception as e:  # noqa: BLE001 - every failure goes back to the model code
+                    entry.setdefault("decision", "error")
+                    entry["error"] = str(e)[:200]
                     reply = {"id": rid, "error": str(e)}
+                elapsed = time.monotonic() - t1
+                entry["ms"] = round(elapsed * 1000, 1)
+                remaining -= elapsed
                 await send({"type": "response", "payload": json.dumps(reply)})
     finally:
         if proc.returncode is None:

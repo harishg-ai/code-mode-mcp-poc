@@ -20,7 +20,7 @@ The server, fake API, demo and eval are Python. The model still writes JavaScrip
 | `acme/spec.py` | OpenAPI 3.1 spec for it, all schemas inlined |
 | `acme/sandbox.py` | Host side: starts a locked-down Node process per call, answers API requests, adds the token, enforces time and request limits |
 | `acme/sandbox_child.mjs` | Sandbox: `vm` context with no host objects reachable, string code generation disabled |
-| `acme/write_policy.py` | Approval gate for POST/PATCH/DELETE calls made by generated code |
+| `acme/write_policy.py` | Approval gate for POST/PATCH/DELETE calls made by generated code, judged on the resolved request |
 | `acme/server.py` | stdio MCP server with the `search` and `execute` tools (MCP Python SDK 2.x) |
 | `demo/demo.py` | Real MCP client: token comparison, sample search and execute, sandbox probes, approval tests |
 | `eval/eval.py` | Accuracy eval: the same questions through 82 tools and through Code Mode, scored against ground truth |
@@ -62,6 +62,26 @@ Generated code can call any method, so a model could delete data the user never 
 - The time limit is paused while the prompt waits.
 
 `ACME_WRITES=deny` blocks all writes. `ACME_WRITES=allow` turns the gate off, for trusted scripted use only.
+
+### The prompt shows what actually runs
+
+Each request is handled in three steps on the host: **resolve, approve, execute**.
+
+1. `AcmeApi.resolve()` routes the raw request once and returns a `Resolved` object: method, canonical path, operation (for example `delete_tasks`), query and body.
+2. The approval prompt is built from that object.
+3. `AcmeApi.execute()` runs that same object.
+
+There is one parser, so what the user approves and what runs cannot drift apart. For example, generated code calling `DELETE /v1//tasks/011/` is shown to the user as `DELETE /v1/tasks/11 (delete_tasks)`. A request the router can't match, such as `/v1/tasks/13/../../users/1`, changes nothing, so it returns 404 without a prompt.
+
+## Per-call trace
+
+The model only gets the final result of an `execute` call. The host still sees every API request, so it records one trace entry per request: method, canonical path, operation, decision (`allowed`, `approved`, `blocked`, `error`), HTTP status and latency.
+
+- Every tool call writes one JSON line to stderr (stdout is the MCP channel).
+- Set `ACME_TRACE_FILE` to also append them to a JSONL file.
+- If anything was blocked or failed, the result the model sees ends with a short summary, for example `[sandbox: 86 ms, 3 API requests: 1 allowed, 1 http 404, 1 blocked]`.
+
+The demo writes a sample to `results/trace-demo.jsonl`.
 
 ## Accuracy eval
 

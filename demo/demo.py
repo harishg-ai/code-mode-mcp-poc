@@ -62,10 +62,13 @@ def naive_tools() -> list[dict]:
     return tools
 
 
+TRACE_FILE = ROOT / "results" / "trace-demo.jsonl"
+
+
 def server_params() -> StdioServerParameters:
     return StdioServerParameters(
         command=sys.executable, args=["-m", "acme.server"], cwd=str(ROOT),
-        env={"ACME_TOKEN": "demo-secret-token", "ACME_WRITES": "ask"},
+        env={"ACME_TOKEN": "demo-secret-token", "ACME_WRITES": "ask", "ACME_TRACE_FILE": str(TRACE_FILE)},
     )
 
 
@@ -79,8 +82,12 @@ async def main() -> None:
     log(f"Run at {datetime.now(timezone.utc).isoformat(timespec='seconds')} on Python {platform.python_version()}")
 
     answers: list[bool] = []
+    prompts: list[str] = []
+    (ROOT / "results").mkdir(exist_ok=True)
+    TRACE_FILE.write_text("", encoding="utf-8")
 
     async def on_elicit(ctx, params):
+        prompts.append(params.message)
         return types.ElicitResult(action="accept", content={"approve": answers.pop(0)})
 
     async with stdio_client(server_params()) as (r, w):
@@ -196,6 +203,46 @@ async def main() -> None:
             await plain.initialize()
             text, is_error = await call(plain, "execute", delete)
             log(f"| Client without approval support | {'blocked' if is_error else 'ran'}: {text.splitlines()[0][:100]} |")
+
+    async with stdio_client(server_params()) as (r, w):
+        async with ClientSession(r, w, elicitation_callback=on_elicit) as session:
+            await session.initialize()
+
+            # 6. The prompt shows the resolved request, the same object that runs.
+            log("\n## 6. Approval shows what actually runs (resolve, approve, execute)")
+            log("The router resolves each request once. The prompt is built from that resolved operation, "
+                "and the same object is executed, so the display and the execution cannot disagree.")
+            log("| Path written by the model | What the user is asked to approve | Outcome |\n|---|---|---|")
+            for raw in ["/v1//tasks/011/", "/v1/tasks/12?force=true", "/v1/tasks/13/../../users/1"]:
+                code = f"async () => (await api.request({{ method: 'DELETE', path: {json.dumps(raw)} }})).status"
+                prompts.clear()
+                answers[:] = [True]
+                text, is_error = await call(session, "execute", code)
+                shown = prompts[0].splitlines()[1] if prompts else "(no prompt: the router found no such route, so nothing can change)"
+                answers.clear()
+                result = text.splitlines()[0][:60]
+                log(f"| `{raw}` | `{shown}` | {'error' if is_error else 'status ' + result} |")
+
+            # 7. Per-call trace, kept on the host. The model only sees the final result.
+            log("\n## 7. Per-call trace (host-side)")
+            trace_code = """async () => {
+  const a = await api.request({ path: '/v1/users/1' });
+  const b = await api.request({ path: '/v1/users/9999' });
+  let c;
+  try { c = (await api.request({ method: 'DELETE', path: '/v1/tasks/20' })).status } catch (e) { c = e.message }
+  return { a: a.status, b: b.status, c };
+}"""
+            log("```js\n" + trace_code + "\n```")
+            answers[:] = [False]
+            text, _ = await call(session, "execute", trace_code)
+            log("What the model gets back:\n```\n" + text + "\n```")
+            entries = [json.loads(x) for x in TRACE_FILE.read_text(encoding="utf-8").splitlines() if x.strip()]
+            last = entries[-1]
+            log(f"What the host logged (`{TRACE_FILE.relative_to(ROOT).as_posix()}`, one JSON line per tool call):")
+            log("| # | Method | Path | Operation | Decision | Status | ms |\n|---|---|---|---|---|---|---|")
+            for t in last["trace"]:
+                log(f"| {t['n']} | {t['method']} | `{t['path']}` | {t.get('operation', '')} | {t.get('decision', '')} | "
+                    f"{t.get('status', '')} | {t.get('ms', '')} |")
 
     (ROOT / "results").mkdir(exist_ok=True)
     (ROOT / "results" / "demo-output.md").write_text("\n".join(out) + "\n", encoding="utf-8")

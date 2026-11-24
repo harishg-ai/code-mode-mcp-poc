@@ -19,7 +19,15 @@ Write calls (POST, PATCH, DELETE) need the user's approval and fail if it is not
 
 def tool_text(out: dict[str, Any]) -> tuple[str, bool]:
     """Returns (text, is_error) for a sandbox result."""
-    meta = f"\n\n[sandbox: {out['ms']} ms, {out['requests']} API requests]"
+    counts: dict[str, int] = {}
+    for t in out.get("trace", []):
+        d = t.get("decision", "error")
+        if d == "allowed" and isinstance(t.get("status"), int) and t["status"] >= 400:
+            d = f"http {t['status']}"
+        counts[d] = counts.get(d, 0) + 1
+    # Only spell out the breakdown when something was blocked or failed.
+    detail = (": " + ", ".join(f"{n} {k}" for k, n in counts.items())) if set(counts) - {"allowed"} else ""
+    meta = f"\n\n[sandbox: {out['ms']} ms, {out['requests']} API requests{detail}]"
     logs = "\n[console]\n" + "\n".join(out["logs"]) if out.get("logs") else ""
     if not out["ok"]:
         return f"Error: {out['error']}{logs}{meta}", True

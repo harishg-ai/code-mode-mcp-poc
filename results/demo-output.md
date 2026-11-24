@@ -1,5 +1,5 @@
 # Code Mode MCP POC: run output
-Run at 2026-11-21T20:37:37+00:00 on Python 3.13.17
+Run at 2026-11-24T17:50:56+00:00 on Python 3.13.17
 
 ## 1. Tool definitions in context (cl100k_base tokens)
 | Server | Tools | Tokens |
@@ -20,7 +20,7 @@ Result:
 ```json
 [{"route":"GET /v1/tasks","summary":"List tasks","filters":["page","per_page","title","status","priority","project_id","assignee_id","due_date"]},{"route":"POST /v1/tasks","summary":"Create a tasks row","filters":[]},{"route":"GET /v1/tasks/{id}","summary":"Get one tasks row","filters":[]},{"route":"PATCH /v1/tasks/{id}","summary":"Update a tasks row","filters":[]},{"route":"DELETE /v1/tasks/{id}","summary":"Delete a tasks row","filters":[]},{"route":"GET /v1/projects/{id}/tasks","summary":"List tasks in a project","filters":["page","per_page"]},{"route":"POST /v1/tasks/{id}/assign","summary":"Assign a task to a user","filters":[]}]
 
-[sandbox: 109 ms, 0 API requests]
+[sandbox: 90 ms, 0 API requests]
 ```
 Spec size: 12,548 tokens. Search result: 189 tokens.
 
@@ -49,7 +49,7 @@ Result:
 ```
 {"checked":82,"overdue":23,"top":[{"name":"user name 18","email":"user email 18","overdue_high_priority":4},{"name":"user name 5","email":"user email 5","overdue_high_priority":3},{"name":"user name 6","email":"user email 6","overdue_high_priority":3}]}
 
-[sandbox: 95 ms, 5 API requests]
+[sandbox: 84 ms, 5 API requests]
 ```
 
 | Approach | Model round trips | Tool-result tokens in context |
@@ -80,3 +80,34 @@ async () => (await api.request({ method: 'DELETE', path: '/v1/tasks/7' })).statu
 | User approves | ran: status 204 |
 | Loop of 3 deletes, user declines the first | ["blocked: DELETE /v1/tasks/8 was not approved by the user","blocked: DELETE /v1/tasks/9 was not approved by the user","blocked: DELETE /v1/tasks/10 w |
 | Client without approval support | blocked: Error executing tool execute: Error: blocked: DELETE /v1/tasks/7 was not approved by the user |
+
+## 6. Approval shows what actually runs (resolve, approve, execute)
+The router resolves each request once. The prompt is built from that resolved operation, and the same object is executed, so the display and the execution cannot disagree.
+| Path written by the model | What the user is asked to approve | Outcome |
+|---|---|---|
+| `/v1//tasks/011/` | `DELETE /v1/tasks/11  (delete_tasks)` | status 204 |
+| `/v1/tasks/12?force=true` | `DELETE /v1/tasks/12?force=true  (delete_tasks)` | status 204 |
+| `/v1/tasks/13/../../users/1` | `(no prompt: the router found no such route, so nothing can change)` | status 404 |
+
+## 7. Per-call trace (host-side)
+```js
+async () => {
+  const a = await api.request({ path: '/v1/users/1' });
+  const b = await api.request({ path: '/v1/users/9999' });
+  let c;
+  try { c = (await api.request({ method: 'DELETE', path: '/v1/tasks/20' })).status } catch (e) { c = e.message }
+  return { a: a.status, b: b.status, c };
+}
+```
+What the model gets back:
+```
+{"a":200,"b":404,"c":"blocked: DELETE /v1/tasks/20 was not approved by the user"}
+
+[sandbox: 132 ms, 3 API requests: 1 allowed, 1 http 404, 1 blocked]
+```
+What the host logged (`results/trace-demo.jsonl`, one JSON line per tool call):
+| # | Method | Path | Operation | Decision | Status | ms |
+|---|---|---|---|---|---|---|
+| 1 | GET | `/v1/users/1` | get_users | allowed | 200 | 0.1 |
+| 2 | GET | `/v1/users/9999` | get_users | allowed | 404 | 0.2 |
+| 3 | DELETE | `/v1/tasks/20` | delete_tasks | blocked |  | 0.1 |
